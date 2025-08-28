@@ -1,13 +1,12 @@
-"""MSc Dissertation — Traditional_ML.py
+"""
+MSc Dissertation — Traditional_ML.py
 
-    Traditional machine-learning baselines (Logistic Regression, RandomForest, XGBoost).
+Traditional machine-learning baselines (Logistic Regression, RandomForest, XGBoost)
+with cross-validation and hyperparameter tuning aligned for LaTeX reporting.
 
-    This file is prepared for publication on GitHub (appendix reference). It adds clear, standardized
-    docstrings while preserving original behavior.
-
-    Author: Prawin Thiyagrajan Veeramani
-    Prepared on: 2025-08-26
-    """
+Author: Prawin Thiyagrajan Veeramani
+Prepared on: 2025-08-26
+"""
 
 # ========== IMPORTS ==========
 import pandas as pd
@@ -159,67 +158,68 @@ X_train, X_test, y_train, y_test = train_test_split(
     X_resampled, y_resampled, test_size=0.2, stratify=y_resampled, random_state=42
 )
 
-# Stratified 5-fold
+# Stratified 5-fold (fixed for all CV to align LaTeX)
 cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
-# ========== LOGISTIC REGRESSION BASELINE ==========
+# ========== BASELINES (CV) ==========
 log_reg = LogisticRegression(max_iter=1000, random_state=42)
 log_scores = cross_val_score(log_reg, X_train, y_train, cv=cv, scoring='accuracy')
-print("Logistic Regression CV Accuracy: {:.4f} ± {:.4f}".format(log_scores.mean(), log_scores.std()))
 
-# ========== RANDOM FOREST BASELINE ==========
 rf = RandomForestClassifier(n_estimators=100, random_state=42)
 rf_scores = cross_val_score(rf, X_train, y_train, cv=cv, scoring='accuracy')
-print("Random Forest CV Accuracy: {:.4f} ± {:.4f}".format(rf_scores.mean(), rf_scores.std()))
 
-# ========== XGBOOST BASELINE ==========
 xgb_model = xgb.XGBClassifier(n_estimators=100, random_state=42, use_label_encoder=False, eval_metric='mlogloss')
 xgb_scores = cross_val_score(xgb_model, X_train, y_train, cv=cv, scoring='accuracy')
-print("XGBoost CV Accuracy: {:.4f} ± {:.4f}".format(xgb_scores.mean(), xgb_scores.std()))
+
+print("===== BASELINE CROSS-VALIDATION (mean ± std) =====")
+print("Logistic Regression (CV) Accuracy: {:.4f} ± {:.4f}".format(log_scores.mean(), log_scores.std()))
+print("Random Forest      (CV) Accuracy: {:.4f} ± {:.4f}".format(rf_scores.mean(), rf_scores.std()))
+print("XGBoost           (CV) Accuracy: {:.4f} ± {:.4f}".format(xgb_scores.mean(), xgb_scores.std()))
 
 # ========== LOGISTIC REGRESSION TUNING ==========
+# Scale sparse matrix safely
 scaler = StandardScaler(with_mean=False)
 X_train_scaled = scaler.fit_transform(X_train)
 
-param_dist = {
-    'penalty': ['l1', 'l2', 'elasticnet'],
-    'C': uniform(1e-3, 10),
-    'l1_ratio': [None, 0.0, 0.5, 1.0],
-    'solver': ['saga'],
-    'max_iter': [2000]
-}
+# Use two distributions to avoid invalid (penalty, l1_ratio) combos
+logreg_param_distributions = [
+    {   # L1/L2 (no l1_ratio)
+        'penalty': ['l1', 'l2'],
+        'C': uniform(1e-3, 10),
+        'solver': ['saga'],
+        'max_iter': [2000]
+    },
+    {   # ElasticNet (with l1_ratio in [0,1])
+        'penalty': ['elasticnet'],
+        'C': uniform(1e-3, 10),
+        'l1_ratio': uniform(0.0, 1.0),
+        'solver': ['saga'],
+        'max_iter': [2000]
+    }
+]
 
 search_logreg = RandomizedSearchCV(
     estimator=LogisticRegression(random_state=42),
-    param_distributions=param_dist,
-    n_iter=20,
+    param_distributions=logreg_param_distributions,
+    n_iter=30,
     scoring='accuracy',
     cv=cv,
     n_jobs=-1,
     verbose=3,
     random_state=42
 )
-
 search_logreg.fit(X_train_scaled, y_train)
-
-print("Best Logistic Regression Score from CV: {:.4f}".format(search_logreg.best_score_))
-print("Best Logistic Regression Params:", search_logreg.best_params_)
-
-# Evaluate tuned Logistic Regression
 tuned_logreg = search_logreg.best_estimator_
+
 tuned_log_scores = cross_val_score(tuned_logreg, X_train_scaled, y_train, cv=cv, scoring='accuracy')
-print("Tuned Logistic Regression CV Accuracy: {:.4f} ± {:.4f}".format(tuned_log_scores.mean(), tuned_log_scores.std()))
+
+print("\n===== LOGISTIC REGRESSION TUNING =====")
+print("Best Logistic Regression Params:", search_logreg.best_params_)
+print("Best Logistic Regression CV Score: {:.4f}".format(search_logreg.best_score_))
+print("Tuned Logistic Regression (CV) Accuracy: {:.4f} ± {:.4f}".format(tuned_log_scores.mean(), tuned_log_scores.std()))
 
 # ========== RANDOM FOREST TUNING (OPTUNA) ==========
 def objective_rf(trial):
-    """objective_rf — one-line summary.
-
-    Args:
-        trial: Description.
-
-    Returns:
-        Description of return value.
-    """
     model = RandomForestClassifier(
         n_estimators=trial.suggest_int('n_estimators', 100, 300),
         max_depth=trial.suggest_int('max_depth', 5, 30),
@@ -233,18 +233,15 @@ def objective_rf(trial):
 
 study_rf = optuna.create_study(direction='maximize')
 study_rf.optimize(objective_rf, n_trials=30)
+print("\n===== RANDOM FOREST TUNING =====")
 print("Best Random Forest Params:", study_rf.best_params)
+
+best_rf = RandomForestClassifier(**study_rf.best_params, random_state=42, n_jobs=-1)
+rf_tuned_scores = cross_val_score(best_rf, X_train, y_train, cv=cv, scoring='accuracy')
+print("Tuned Random Forest (CV) Accuracy: {:.4f} ± {:.4f}".format(rf_tuned_scores.mean(), rf_tuned_scores.std()))
 
 # ========== XGBOOST TUNING (OPTUNA) ==========
 def objective_xgb(trial):
-    """objective_xgb — one-line summary.
-
-    Args:
-        trial: Description.
-
-    Returns:
-        Description of return value.
-    """
     model = xgb.XGBClassifier(
         n_estimators=trial.suggest_int('n_estimators', 100, 300),
         learning_rate=trial.suggest_float('learning_rate', 0.01, 0.3),
@@ -260,4 +257,30 @@ def objective_xgb(trial):
 
 study_xgb = optuna.create_study(direction='maximize')
 study_xgb.optimize(objective_xgb, n_trials=30)
+print("\n===== XGBOOST TUNING =====")
 print("Best XGBoost Params:", study_xgb.best_params)
+
+best_xgb = xgb.XGBClassifier(**study_xgb.best_params, use_label_encoder=False, eval_metric='mlogloss', random_state=42, n_jobs=-1)
+xgb_tuned_scores = cross_val_score(best_xgb, X_train, y_train, cv=cv, scoring='accuracy')
+print("Tuned XGBoost (CV) Accuracy: {:.4f} ± {:.4f}".format(xgb_tuned_scores.mean(), xgb_tuned_scores.std()))
+
+# ========== FINAL TEST-SET EVALUATION ==========
+print("\n===== TEST-SET EVALUATION =====")
+# Logistic Regression
+X_test_scaled = scaler.transform(X_test)
+tuned_logreg.fit(X_train_scaled, y_train)
+y_pred_logreg = tuned_logreg.predict(X_test_scaled)
+print("Logistic Regression Test Accuracy: {:.4f}".format(accuracy_score(y_test, y_pred_logreg)))
+print("Logistic Regression Test Classification Report:\n", classification_report(y_test, y_pred_logreg))
+
+# Random Forest
+best_rf.fit(X_train, y_train)
+y_pred_rf = best_rf.predict(X_test)
+print("Random Forest Test Accuracy: {:.4f}".format(accuracy_score(y_test, y_pred_rf)))
+print("Random Forest Test Classification Report:\n", classification_report(y_test, y_pred_rf))
+
+# XGBoost
+best_xgb.fit(X_train, y_train)
+y_pred_xgb = best_xgb.predict(X_test)
+print("XGBoost Test Accuracy: {:.4f}".format(accuracy_score(y_test, y_pred_xgb)))
+print("XGBoost Test Classification Report:\n", classification_report(y_test, y_pred_xgb))
