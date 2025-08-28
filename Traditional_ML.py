@@ -2,7 +2,7 @@
 MSc Dissertation — Traditional_ML.py
 
 Traditional machine-learning baselines (Logistic Regression, RandomForest, XGBoost)
-with cross-validation and hyperparameter tuning aligned for LaTeX reporting.
+with cross-validation and hyperparameter tuning aligned.
 
 Author: Prawin Thiyagrajan Veeramani
 Prepared on: 2025-08-26
