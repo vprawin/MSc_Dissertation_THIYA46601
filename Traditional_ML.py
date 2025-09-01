@@ -23,7 +23,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from scipy.sparse import hstack
 
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score, RandomizedSearchCV
-from sklearn.metrics import classification_report, make_scorer, precision_score, recall_score, f1_score
+from sklearn.metrics import accuracy_score, classification_report, make_scorer, precision_score, recall_score, f1_score
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 import xgboost as xgb
@@ -32,7 +32,7 @@ import optuna
 import numpy as np
 
 # ========== DATA LOAD ==========
-df = pd.read_excel(r'/Users/prawin/Desktop/MSc Data Science/Dissertation/Dataset.xlsx')
+df = pd.read_excel(r'/Users/prawin/Desktop/MSc Data Science/Dissertation/Dataset_Sampled.xlsx')
 df.columns = ['Defect Place', 'Defect Type', 'Capture Remark', 'Precise Defect Description']
 
 # ========== TEXT PROCESSING FUNCTIONS (do not modify) ==========
