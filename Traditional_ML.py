@@ -23,7 +23,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from scipy.sparse import hstack
 
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score, RandomizedSearchCV
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import classification_report, make_scorer, precision_score, recall_score, f1_score
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 import xgboost as xgb
@@ -161,20 +161,45 @@ X_train, X_test, y_train, y_test = train_test_split(
 # Stratified 5-fold (fixed for all CV to align LaTeX)
 cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
+# --- Define weighted scorers (same CV logic as accuracy) ---
+precision_scorer = make_scorer(precision_score, average='weighted')
+recall_scorer    = make_scorer(recall_score, average='weighted')
+f1_scorer        = make_scorer(f1_score, average='weighted')
+
 # ========== BASELINES (CV) ==========
 log_reg = LogisticRegression(max_iter=1000, random_state=42)
 log_scores = cross_val_score(log_reg, X_train, y_train, cv=cv, scoring='accuracy')
+log_prec_scores = cross_val_score(log_reg, X, y, cv=5, scoring=precision_scorer)
+log_rec_scores  = cross_val_score(log_reg, X, y, cv=5, scoring=recall_scorer)
+log_f1_scores   = cross_val_score(log_reg, X, y, cv=5, scoring=f1_scorer)
 
 rf = RandomForestClassifier(n_estimators=100, random_state=42)
 rf_scores = cross_val_score(rf, X_train, y_train, cv=cv, scoring='accuracy')
+rf_prec_scores = cross_val_score(rf, X, y, cv=5, scoring=precision_scorer)
+rf_rec_scores  = cross_val_score(rf, X, y, cv=5, scoring=recall_scorer)
+rf_f1_scores   = cross_val_score(rf, X, y, cv=5, scoring=f1_scorer)
 
 xgb_model = xgb.XGBClassifier(n_estimators=100, random_state=42, use_label_encoder=False, eval_metric='mlogloss')
 xgb_scores = cross_val_score(xgb_model, X_train, y_train, cv=cv, scoring='accuracy')
+xgb_prec_scores = cross_val_score(xgb, X, y, cv=5, scoring=precision_scorer)
+xgb_rec_scores  = cross_val_score(xgb, X, y, cv=5, scoring=recall_scorer)
+xgb_f1_scores   = cross_val_score(xgb, X, y, cv=5, scoring=f1_scorer)
 
 print("===== BASELINE CROSS-VALIDATION (mean ± std) =====")
 print("Logistic Regression (CV) Accuracy: {:.4f} ± {:.4f}".format(log_scores.mean(), log_scores.std()))
-print("Random Forest      (CV) Accuracy: {:.4f} ± {:.4f}".format(rf_scores.mean(), rf_scores.std()))
-print("XGBoost           (CV) Accuracy: {:.4f} ± {:.4f}".format(xgb_scores.mean(), xgb_scores.std()))
+print("Logistic Regression (CV) Precision: {:.4f} ± {:.4f}".format(log_prec_scores.mean(), log_prec_scores.std()))
+print("Logistic Regression (CV) Recall:    {:.4f} ± {:.4f}".format(log_rec_scores.mean(), log_rec_scores.std()))
+print("Logistic Regression (CV) F1-score:  {:.4f} ± {:.4f}".format(log_f1_scores.mean(), log_f1_scores.std()))
+
+print("Random Forest (CV) Accuracy: {:.4f} ± {:.4f}".format(rf_scores.mean(), rf_scores.std()))
+print("Random Forest (CV) Precision: {:.4f} ± {:.4f}".format(rf_prec_scores.mean(), rf_prec_scores.std()))
+print("Random Forest (CV) Recall:    {:.4f} ± {:.4f}".format(rf_rec_scores.mean(), rf_rec_scores.std()))
+print("Random Forest (CV) F1-score:  {:.4f} ± {:.4f}".format(rf_f1_scores.mean(), rf_f1_scores.std()))
+
+print("XGBoost (CV) Accuracy: {:.4f} ± {:.4f}".format(xgb_scores.mean(), xgb_scores.std()))
+print("XGBoost (CV) Precision: {:.4f} ± {:.4f}".format(xgb_prec_scores.mean(), xgb_prec_scores.std()))
+print("XGBoost (CV) Recall:    {:.4f} ± {:.4f}".format(xgb_rec_scores.mean(), xgb_rec_scores.std()))
+print("XGBoost (CV) F1-score:  {:.4f} ± {:.4f}".format(xgb_f1_scores.mean(), xgb_f1_scores.std()))
 
 # ========== LOGISTIC REGRESSION TUNING ==========
 # Scale sparse matrix safely
@@ -212,11 +237,23 @@ search_logreg.fit(X_train_scaled, y_train)
 tuned_logreg = search_logreg.best_estimator_
 
 tuned_log_scores = cross_val_score(tuned_logreg, X_train_scaled, y_train, cv=cv, scoring='accuracy')
+tuned_log_prec_scores = cross_val_score(tuned_logreg, X_train_scaled, y_train, cv=cv, 
+                                        scoring=make_scorer(precision_score, average='weighted'))
+tuned_log_rec_scores  = cross_val_score(tuned_logreg, X_train_scaled, y_train, cv=cv, 
+                                        scoring=make_scorer(recall_score, average='weighted'))
+tuned_log_f1_scores   = cross_val_score(tuned_logreg, X_train_scaled, y_train, cv=cv, 
+                                        scoring=make_scorer(f1_score, average='weighted'))
+
 
 print("\n===== LOGISTIC REGRESSION TUNING =====")
 print("Best Logistic Regression Params:", search_logreg.best_params_)
 print("Best Logistic Regression CV Score: {:.4f}".format(search_logreg.best_score_))
 print("Tuned Logistic Regression (CV) Accuracy: {:.4f} ± {:.4f}".format(tuned_log_scores.mean(), tuned_log_scores.std()))
+print("Tuned Logistic Regression (CV) Precision: {:.4f} ± {:.4f}".format(tuned_log_prec_scores.mean(), tuned_log_prec_scores.std()))
+print("Tuned Logistic Regression (CV) Recall:    {:.4f} ± {:.4f}".format(tuned_log_rec_scores.mean(), tuned_log_rec_scores.std()))
+print("Tuned Logistic Regression (CV) F1-score:  {:.4f} ± {:.4f}".format(tuned_log_f1_scores.mean(), tuned_log_f1_scores.std()))
+
+
 
 # ========== RANDOM FOREST TUNING (OPTUNA) ==========
 def objective_rf(trial):
@@ -238,7 +275,19 @@ print("Best Random Forest Params:", study_rf.best_params)
 
 best_rf = RandomForestClassifier(**study_rf.best_params, random_state=42, n_jobs=-1)
 rf_tuned_scores = cross_val_score(best_rf, X_train, y_train, cv=cv, scoring='accuracy')
+rf_tuned_prec_scores = cross_val_score(best_rf, X_train, y_train, cv=cv, 
+                                       scoring=make_scorer(precision_score, average='weighted'))
+rf_tuned_rec_scores  = cross_val_score(best_rf, X_train, y_train, cv=cv, 
+                                       scoring=make_scorer(recall_score, average='weighted'))
+rf_tuned_f1_scores   = cross_val_score(best_rf, X_train, y_train, cv=cv, 
+                                       scoring=make_scorer(f1_score, average='weighted'))
+
+
 print("Tuned Random Forest (CV) Accuracy: {:.4f} ± {:.4f}".format(rf_tuned_scores.mean(), rf_tuned_scores.std()))
+print("Tuned Random Forest (CV) Precision: {:.4f} ± {:.4f}".format(rf_tuned_prec_scores.mean(), rf_tuned_prec_scores.std()))
+print("Tuned Random Forest (CV) Recall:    {:.4f} ± {:.4f}".format(rf_tuned_rec_scores.mean(), rf_tuned_rec_scores.std()))
+print("Tuned Random Forest (CV) F1-score:  {:.4f} ± {:.4f}".format(rf_tuned_f1_scores.mean(), rf_tuned_f1_scores.std()))
+
 
 # ========== XGBOOST TUNING (OPTUNA) ==========
 def objective_xgb(trial):
@@ -262,7 +311,19 @@ print("Best XGBoost Params:", study_xgb.best_params)
 
 best_xgb = xgb.XGBClassifier(**study_xgb.best_params, use_label_encoder=False, eval_metric='mlogloss', random_state=42, n_jobs=-1)
 xgb_tuned_scores = cross_val_score(best_xgb, X_train, y_train, cv=cv, scoring='accuracy')
+xgb_tuned_prec_scores = cross_val_score(best_xgb, X_train, y_train, cv=cv, 
+                                        scoring=make_scorer(precision_score, average='weighted'))
+xgb_tuned_rec_scores  = cross_val_score(best_xgb, X_train, y_train, cv=cv, 
+                                        scoring=make_scorer(recall_score, average='weighted'))
+xgb_tuned_f1_scores   = cross_val_score(best_xgb, X_train, y_train, cv=cv, 
+                                        scoring=make_scorer(f1_score, average='weighted'))
+
+
 print("Tuned XGBoost (CV) Accuracy: {:.4f} ± {:.4f}".format(xgb_tuned_scores.mean(), xgb_tuned_scores.std()))
+print("Tuned XGBoost (CV) Precision: {:.4f} ± {:.4f}".format(xgb_tuned_prec_scores.mean(), xgb_tuned_prec_scores.std()))
+print("Tuned XGBoost (CV) Recall:    {:.4f} ± {:.4f}".format(xgb_tuned_rec_scores.mean(), xgb_tuned_rec_scores.std()))
+print("Tuned XGBoost (CV) F1-score:  {:.4f} ± {:.4f}".format(xgb_tuned_f1_scores.mean(), xgb_tuned_f1_scores.std()))
+
 
 # ========== FINAL TEST-SET EVALUATION ==========
 print("\n===== TEST-SET EVALUATION =====")
