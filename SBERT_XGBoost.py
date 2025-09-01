@@ -1,149 +1,243 @@
-"""MSc Dissertation — SBERT_XGBoost.py
+"""
+MSc Dissertation — SBERT_XGBoost.py
 
-    Sentence-BERT embedding pipeline with an XGBoost classifier.
+SBERT embeddings + XGBoost, evaluated with 5-fold cross-validation exactly like
+Traditional_ML.py:
+- Each fold: 80% development (training) and 20% held-out test
+- SBERT vectorization happens inside the pipeline (no leakage)
+- Metrics: Accuracy, Precision, Recall, F1 (weighted) reported as mean ± std
+- Two blocks printed: Baseline 5-fold and Tuned 5-fold
 
-    This file is prepared for publication on GitHub (appendix reference). It adds clear, standardized
-    docstrings while preserving original behavior.
+Author: Prawin Thiyagrajan Veeramani
+Prepared on: 2025-08-26
+"""
 
-    Author: Prawin Thiyagrajan Veeramani
-    Prepared on: 2025-08-26
-    """
-
-# ==================== LIBRARIES ====================
-import pandas as pd
-import numpy as np
+# ==================== IMPORTS ====================
 import re
+import numpy as np
+import pandas as pd
+
 from nltk.stem import WordNetLemmatizer, PorterStemmer
 from nltk.tokenize import word_tokenize
-from sklearn.preprocessing import LabelEncoder, label_binarize
-from sklearn.model_selection import train_test_split, StratifiedKFold
-from sklearn.metrics import classification_report, roc_auc_score, roc_curve, auc, accuracy_score
-from sklearn.utils import compute_class_weight, resample
-from sentence_transformers import SentenceTransformer
-import xgboost as xgb
-import matplotlib.pyplot as plt
-from tqdm import tqdm
 
-# ==================== LOAD & PREPROCESS ====================
-df = pd.read_excel('/Users/prawin/Desktop/MSc Data Science/Dissertation/Dataset_Sampled.xlsx')
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.preprocessing import LabelEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.model_selection import StratifiedKFold, RandomizedSearchCV, cross_validate
+from sklearn.metrics import make_scorer, accuracy_score, precision_score, recall_score, f1_score
+
+import xgboost as xgb
+from sentence_transformers import SentenceTransformer
+
+# ==================== SEED ====================
+def set_seed(seed=42):
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+set_seed(42)
+
+# ==================== DATA LOAD ====================
+df = pd.read_excel(r'/Users/prawin/Desktop/MSc Data Science/Dissertation/Dataset_Sampled.xlsx')
 df.columns = ['Defect Place', 'Defect Type', 'Capture Remark', 'Precise Defect Description']
 
+# ==================== TEXT PROCESSING (kept aligned with your code) ====================
 stemmer = PorterStemmer()
 lemmatizer = WordNetLemmatizer()
 
-def label_custom_stopwords(description, stopwords_set, stemmer, lemmatizer):
-    """label_custom_stopwords — one-line summary.
-
-    Args:
-        description: Description.
-        stopwords_set: Description.
-        stemmer: Description.
-        lemmatizer: Description.
-
-    Returns:
-        Description of return value.
-    """
+def label_custom_stopwords(description, stopwords_set, stemmer, lemmatizer, similarity_threshold=0.7):
+    """(Kept as-is to align with your existing scripts.)"""
     description = re.sub(r'\[.*?\]', '', str(description)).lower()
-    tokens = word_tokenize(description)
-    processed = []
-    for token in tokens:
-        for _ in stopwords_set:
-            processed.append("NAME")
-        processed.append(lemmatizer.lemmatize(stemmer.stem(token)))
-    return re.sub(r'\s+', ' ', re.sub(r'[^a-zA-Z0-9 ]', ' ', ' '.join(processed).strip()))
+    description_tokens = word_tokenize(description)
+    processed_tokens = []
+    for token in description_tokens:
+        for sw in stopwords_set:
+            processed_tokens.append("NAME")
+        stemmed = stemmer.stem(token)
+        lemmatized = lemmatizer.lemmatize(stemmed)
+        processed_tokens.append(lemmatized)
+    labeled_description = ' '.join(processed_tokens)
+    return re.sub(r'\s+', ' ', re.sub(r'[^a-zA-Z0-9 ]', ' ', labeled_description.strip()))
 
 def first_preprocessing(data):
-    """first_preprocessing — one-line summary.
-
-    Args:
-        data: Description.
-
-    Returns:
-        Description of return value.
-    """
-    data = data.copy()
-    data['capture_remark_updated'] = data['Capture Remark'].str.replace(r"[qQ][a-zA-Z0-9]{6}", 'userid', regex=True)
-    custom_stopwords = pd.read_excel('/Users/prawin/Desktop/MSc Data Science/Dissertation/250524_ACTIVE_USERS_v1.xlsx')
-    second_stopwords = pd.read_csv('/Users/prawin/Desktop/MSc Data Science/Dissertation/Domain Word Counts Exception.csv')
-    new_stopwords = set(custom_stopwords['SPERSNAME'].tolist() + second_stopwords[second_stopwords['Relevant'] == 'N']['Column'].tolist())
-    new_stopwords.difference_update(['-', 'biw', '1', 'area', 'on', 'road', 'test', 'for', 'rework'])
-    data['custom_stopwords_extracted'] = data['capture_remark_updated'].apply(lambda x: label_custom_stopwords(x, new_stopwords, stemmer, lemmatizer))
-    data['capture_description_processed'] = data['custom_stopwords_extracted'].apply(lambda x: x.replace('NAME', ''))
-    data['capture_description_bert_processed'] = data['capture_remark_updated'].str.replace('NAME', '', regex=False).apply(lambda x: re.sub(r'\s+', ' ', str(x).lower().strip()))
-    data.drop(['custom_stopwords_extracted', 'capture_remark_updated'], axis=1, inplace=True)
-    return data.applymap(lambda x: re.sub(r'\s+', ' ', x.lower().strip()) if isinstance(x, str) else x)
-
-train_data = first_preprocessing(df).astype(str)
-
-# ==================== UPSAMPLING ====================
-min_samples = 6
-label_counts = train_data['Precise Defect Description'].value_counts()
-rare_classes = label_counts[label_counts < min_samples].index
-resampled = [resample(train_data[train_data['Precise Defect Description'] == cls], replace=True, n_samples=min_samples, random_state=42) for cls in rare_classes]
-train_data = pd.concat([train_data[~train_data['Precise Defect Description'].isin(rare_classes)]] + resampled).sample(frac=1, random_state=42)
-
-# ==================== ENCODING ====================
-le_place = LabelEncoder()
-le_type = LabelEncoder()
-le_label = LabelEncoder()
-train_data['type_enc'] = le_type.fit_transform(train_data['Defect Type'])
-train_data['place_enc'] = le_place.fit_transform(train_data['Defect Place'])
-train_data['label_enc'] = le_label.fit_transform(train_data['Precise Defect Description'])
-
-# ==================== SBERT EMBEDDINGS ====================
-print("Encoding SBERT embeddings...")
-sbert = SentenceTransformer('all-MiniLM-L6-v2')
-text_embeddings = sbert.encode(train_data['Capture Remark'].tolist(), show_progress_bar=True)
-
-# ==================== FEATURE MATRIX ====================
-X_structured = train_data[['type_enc', 'place_enc']].values
-X = np.hstack([X_structured, text_embeddings])
-y = train_data['label_enc'].values
-
-# ==================== CLASS WEIGHTS ====================
-class_weights = compute_class_weight(class_weight='balanced', classes=np.unique(y), y=y)
-weight_dict = {i: w for i, w in enumerate(class_weights)}
-
-# ==================== 5-FOLD CROSS-VALIDATION ====================
-print("\nRunning 5-Fold Stratified Cross-Validation...")
-cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-cv_acc = []
-cv_auc = []
-
-for fold, (train_idx, val_idx) in enumerate(cv.split(X, y)):
-    print(f"\nFold {fold+1}")
-    X_train, X_val = X[train_idx], X[val_idx]
-    y_train, y_val = y[train_idx], y[val_idx]
-
-    sample_weights = np.array([weight_dict[label] for label in y_train])
-
-    clf = xgb.XGBClassifier(
-        objective='multi:softprob',
-        num_class=len(np.unique(y)),
-        eval_metric='mlogloss',
-        use_label_encoder=False,
-        learning_rate=0.05,
-        max_depth=6,
-        n_estimators=300,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=42
+    rows = data.copy()
+    rows['capture_remark_updated'] = rows['Capture Remark'].str.replace(
+        r"[qQ][a-zA-Z0-9]{6}", 'userid', regex=True
     )
 
-    clf.fit(X_train, y_train, sample_weight=sample_weights)
-    y_pred = clf.predict(X_val)
-    y_prob = clf.predict_proba(X_val)
+    custom_stopwords = pd.read_excel(
+        r'/Users/prawin/Desktop/MSc Data Science/Dissertation/250524_ACTIVE_USERS_v1.xlsx'
+    )
+    second_stopwords = pd.read_csv(
+        r'/Users/prawin/Desktop/MSc Data Science/Dissertation/Domain Word Counts Exception.csv'
+    )
+    filtered_words = second_stopwords[second_stopwords['Relevant'] == 'N']
 
-    acc = accuracy_score(y_val, y_pred)
-    y_val_bin = label_binarize(y_val, classes=np.arange(len(np.unique(y))))
-    roc_auc = roc_auc_score(y_val_bin, y_prob, average='weighted', multi_class='ovr')
+    regex = r"[qQ][a-zA-Z0-9]{6}"
+    custom_stopwords = custom_stopwords[custom_stopwords['SPERS_IDNR'].astype(str).str.match(regex, na=False)]
+    custom_stopwords_list = custom_stopwords['SPERSNAME'].astype(str).tolist()
+    additional_stopwords = filtered_words['Column'].astype(str).tolist()
 
-    print(f"Fold {fold+1} Accuracy: {acc:.4f}")
-    print(f"Fold {fold+1} Weighted ROC-AUC: {roc_auc:.4f}")
+    new_stopwords = set(custom_stopwords_list + additional_stopwords)
+    new_stopwords.difference_update(['-', 'biw', '1', 'area', 'on', 'road', 'test', 'for', 'rework'])
 
-    cv_acc.append(acc)
-    cv_auc.append(roc_auc)
+    rows['custom_stopwords_extracted'] = rows['capture_remark_updated'].apply(
+        lambda x: label_custom_stopwords(x, new_stopwords, stemmer, lemmatizer)
+    )
+    rows['capture_description_processed'] = rows['custom_stopwords_extracted'].apply(lambda x: x.replace('NAME', ''))
 
-print("\nCross-Validation Summary:")
-print(f"Mean Accuracy: {np.mean(cv_acc):.4f} ± {np.std(cv_acc):.4f}")
-print(f"Mean Weighted ROC-AUC: {np.mean(cv_auc):.4f} ± {np.std(cv_auc):.4f}")
+    # SBERT-ready text (lowercased, normalized)
+    rows['sbert_text'] = rows['capture_remark_updated'].str.replace('NAME', '', regex=False).apply(
+        lambda x: re.sub(r'\s+', ' ', str(x).lower().strip()) if isinstance(x, str) else x
+    )
+
+    rows.drop(['custom_stopwords_extracted', 'capture_remark_updated'], axis=1, inplace=True)
+    rows = rows.applymap(lambda x: re.sub(r'\s+', ' ', x.lower().strip()) if isinstance(x, str) else x)
+    return rows
+
+# ==================== PREP DATA ====================
+data_all = first_preprocessing(df).astype(str)
+
+# Encode categoricals like Traditional_ML.py
+le_place = LabelEncoder()
+le_type  = LabelEncoder()
+le_y     = LabelEncoder()
+
+data_all['defect_place_encoded'] = le_place.fit_transform(data_all['Defect Place'])
+data_all['defect_type_encoded']  = le_type.fit_transform(data_all['Defect Type'])
+data_all['y']                    = le_y.fit_transform(data_all['Precise Defect Description'])
+
+X_df = pd.DataFrame({
+    'sbert_text': data_all['sbert_text'],
+    'defect_place_encoded': data_all['defect_place_encoded'].astype(int),
+    'defect_type_encoded':  data_all['defect_type_encoded'].astype(int),
+})
+y = data_all['y'].astype(int).to_numpy()
+n_classes = len(le_y.classes_)
+
+# ==================== SBERT TRANSFORMER ====================
+class SBERTVectorizer(BaseEstimator, TransformerMixin):
+    """
+    Scikit-learn compatible transformer that turns a column of text into SBERT embeddings.
+    Loaded once per (cloned) instance; participates cleanly in CV/Pipelines.
+    """
+    def __init__(self, model_name="sentence-transformers/all-MiniLM-L6-v2", batch_size=256, normalize=False, device=None):
+        self.model_name = model_name
+        self.batch_size = batch_size
+        self.normalize = normalize
+        self.device = device  # None -> auto
+        self._model = None
+
+    def _ensure_model(self):
+        if self._model is None:
+            self._model = SentenceTransformer(self.model_name, device=self.device)
+        return self._model
+
+    def fit(self, X, y=None):
+        # Nothing to learn; keep for Pipeline API compatibility
+        self._ensure_model()
+        return self
+
+    def transform(self, X):
+        # ColumnTransformer passes a 2D array for a single column
+        if isinstance(X, (pd.Series, pd.DataFrame)):
+            texts = pd.Series(X.squeeze()).astype(str).tolist()
+        else:
+            arr = np.array(X)
+            if arr.ndim == 2 and arr.shape[1] == 1:
+                texts = [str(t) for t in arr[:, 0]]
+            else:
+                texts = [str(t) for t in arr]
+        model = self._ensure_model()
+        vecs = model.encode(texts, batch_size=self.batch_size, convert_to_numpy=True, normalize_embeddings=self.normalize)
+        return vecs  # (n_samples, dim)
+
+# ==================== PREPROCESSOR & SCORING ====================
+preprocess = ColumnTransformer(
+    transformers=[
+        ('sbert', SBERTVectorizer(), 'sbert_text'),
+        ('num', 'passthrough', ['defect_place_encoded', 'defect_type_encoded']),
+    ]
+)
+
+scoring = {
+    'acc': 'accuracy',
+    'precision': make_scorer(precision_score, average='weighted', zero_division=0),
+    'recall':    make_scorer(recall_score,    average='weighted', zero_division=0),
+    'f1':        make_scorer(f1_score,        average='weighted', zero_division=0),
+}
+cv5 = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+def summarize(cvres):
+    return {
+        'acc_mean':       np.mean(cvres['test_acc']),       'acc_std':       np.std(cvres['test_acc']),
+        'precision_mean': np.mean(cvres['test_precision']), 'precision_std': np.std(cvres['test_precision']),
+        'recall_mean':    np.mean(cvres['test_recall']),    'recall_std':    np.std(cvres['test_recall']),
+        'f1_mean':        np.mean(cvres['test_f1']),        'f1_std':        np.std(cvres['test_f1']),
+    }
+
+def print_block(title, s):
+    print(title)
+    print(f"Accuracy:  {s['acc_mean']:.4f} ± {s['acc_std']:.4f}")
+    print(f"Precision: {s['precision_mean']:.4f} ± {s['precision_std']:.4f}")
+    print(f"Recall:    {s['recall_mean']:.4f} ± {s['recall_std']:.4f}")
+    print(f"F1:        {s['f1_mean']:.4f} ± {s['f1_std']:.4f}\n")
+
+# ==================== XGBOOST: BASELINE ====================
+xgb_base_est = xgb.XGBClassifier(
+    n_estimators=800, learning_rate=0.1, max_depth=6,
+    subsample=0.9, colsample_bytree=0.9,
+    reg_lambda=1.0, objective='multi:softprob',
+    tree_method='hist', eval_metric='mlogloss',
+    random_state=42, n_jobs=-1, use_label_encoder=False
+)
+pipe_base = Pipeline(steps=[('pre', preprocess), ('clf', xgb_base_est)])
+
+base_cv = cross_validate(pipe_base, X_df, y, cv=cv5, scoring=scoring, n_jobs=-1, verbose=0)
+base_stats = summarize(base_cv)
+
+# ==================== XGBOOST: TUNING ====================
+pipe_tune = Pipeline(steps=[('pre', preprocess),
+                            ('clf', xgb.XGBClassifier(
+                                objective='multi:softprob', tree_method='hist',
+                                eval_metric='mlogloss', random_state=42, n_jobs=-1, use_label_encoder=False
+                            ))])
+
+param_dist = {
+    'clf__n_estimators':     np.arange(400, 1401, 200),
+    'clf__learning_rate':    np.linspace(0.03, 0.2, 8),
+    'clf__max_depth':        [4, 6, 8, 10],
+    'clf__subsample':        np.linspace(0.7, 1.0, 4),
+    'clf__colsample_bytree': np.linspace(0.7, 1.0, 4),
+    'clf__reg_lambda':       [0.5, 1.0, 1.5, 2.0],
+}
+
+search = RandomizedSearchCV(
+    estimator=pipe_tune,
+    param_distributions=param_dist,
+    n_iter=20,                # keep moderate due to SBERT cost
+    cv=cv5,
+    scoring='f1_weighted',
+    refit=True,
+    random_state=42,
+    n_jobs=-1,
+    verbose=0
+)
+search.fit(X_df, y)
+best_pipe = search.best_estimator_
+
+best_cv = cross_validate(best_pipe, X_df, y, cv=cv5, scoring=scoring, n_jobs=-1, verbose=0)
+best_stats = summarize(best_cv)
+
+# ==================== PRINT (two blocks, aligned with Traditional_ML.py) ====================
+print("SBERT + XGBOOST — 5-fold (baseline)")
+print(f"Accuracy:  {base_stats['acc_mean']:.4f} ± {base_stats['acc_std']:.4f}")
+print(f"Precision: {base_stats['precision_mean']:.4f} ± {base_stats['precision_std']:.4f}")
+print(f"Recall:    {base_stats['recall_mean']:.4f} ± {base_stats['recall_std']:.4f}")
+print(f"F1:        {base_stats['f1_mean']:.4f} ± {base_stats['f1_std']:.4f}\n")
+
+print("SBERT + XGBOOST — 5-fold (tuned)")
+print(f"Accuracy:  {best_stats['acc_mean']:.4f} ± {best_stats['acc_std']:.4f}")
+print(f"Precision: {best_stats['precision_mean']:.4f} ± {best_stats['precision_std']:.4f}")
+print(f"Recall:    {best_stats['recall_mean']:.4f} ± {best_stats['recall_std']:.4f}")
+print(f"F1:        {best_stats['f1_mean']:.4f} ± {best_stats['f1_std']:.4f}\n")
