@@ -1,12 +1,10 @@
 """
 MSc Dissertation — SBERT_XGBoost.py
 
-SBERT embeddings + XGBoost, evaluated with 5-fold cross-validation exactly like
-Traditional_ML.py:
-- Each fold: 80% development (training) and 20% held-out test
-- SBERT vectorization happens inside the pipeline (no leakage)
-- Metrics: Accuracy, Precision, Recall, F1 (weighted) reported as mean ± std
-- Two blocks printed: Baseline 5-fold and Tuned 5-fold
+SBERT embeddings + XGBoost with 80/20 fixed test-set evaluation, mirroring Traditional_ML.py:
+1) Stratified 80/20 split (20% = final test)
+2) 5-fold CV on the 80% train only (baseline + tuned) → print mean ± std (Acc/Prec/Rec/F1 weighted)
+3) Refit tuned pipeline on 80% train and evaluate on 20% test → print single metrics + classification report
 
 Author: Prawin Thiyagrajan Veeramani
 Prepared on: 2025-08-26
@@ -24,8 +22,10 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import LabelEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import StratifiedKFold, RandomizedSearchCV, cross_validate
-from sklearn.metrics import make_scorer, accuracy_score, precision_score, recall_score, f1_score
+from sklearn.model_selection import StratifiedKFold, RandomizedSearchCV, cross_validate, train_test_split
+from sklearn.metrics import (
+    make_scorer, accuracy_score, precision_score, recall_score, f1_score, classification_report
+)
 
 import xgboost as xgb
 from sentence_transformers import SentenceTransformer
@@ -86,7 +86,7 @@ def first_preprocessing(data):
     )
     rows['capture_description_processed'] = rows['custom_stopwords_extracted'].apply(lambda x: x.replace('NAME', ''))
 
-    # SBERT-ready text (lowercased, normalized)
+    # SBERT-ready text
     rows['sbert_text'] = rows['capture_remark_updated'].str.replace('NAME', '', regex=False).apply(
         lambda x: re.sub(r'\s+', ' ', str(x).lower().strip()) if isinstance(x, str) else x
     )
@@ -107,25 +107,27 @@ data_all['defect_place_encoded'] = le_place.fit_transform(data_all['Defect Place
 data_all['defect_type_encoded']  = le_type.fit_transform(data_all['Defect Type'])
 data_all['y']                    = le_y.fit_transform(data_all['Precise Defect Description'])
 
-X_df = pd.DataFrame({
+X_df_full = pd.DataFrame({
     'sbert_text': data_all['sbert_text'],
     'defect_place_encoded': data_all['defect_place_encoded'].astype(int),
     'defect_type_encoded':  data_all['defect_type_encoded'].astype(int),
 })
-y = data_all['y'].astype(int).to_numpy()
+y_full = data_all['y'].astype(int).to_numpy()
 n_classes = len(le_y.classes_)
+
+# ===== 80/20 fixed test split =====
+X_train_df, X_test_df, y_train, y_test = train_test_split(
+    X_df_full, y_full, test_size=0.20, stratify=y_full, random_state=42
+)
 
 # ==================== SBERT TRANSFORMER ====================
 class SBERTVectorizer(BaseEstimator, TransformerMixin):
-    """
-    Scikit-learn compatible transformer that turns a column of text into SBERT embeddings.
-    Loaded once per (cloned) instance; participates cleanly in CV/Pipelines.
-    """
+    """Sklearn transformer to produce SBERT embeddings (inside CV/pipeline to avoid leakage)."""
     def __init__(self, model_name="sentence-transformers/all-MiniLM-L6-v2", batch_size=256, normalize=False, device=None):
         self.model_name = model_name
         self.batch_size = batch_size
         self.normalize = normalize
-        self.device = device  # None -> auto
+        self.device = device
         self._model = None
 
     def _ensure_model(self):
@@ -134,23 +136,18 @@ class SBERTVectorizer(BaseEstimator, TransformerMixin):
         return self._model
 
     def fit(self, X, y=None):
-        # Nothing to learn; keep for Pipeline API compatibility
         self._ensure_model()
         return self
 
     def transform(self, X):
-        # ColumnTransformer passes a 2D array for a single column
         if isinstance(X, (pd.Series, pd.DataFrame)):
             texts = pd.Series(X.squeeze()).astype(str).tolist()
         else:
             arr = np.array(X)
-            if arr.ndim == 2 and arr.shape[1] == 1:
-                texts = [str(t) for t in arr[:, 0]]
-            else:
-                texts = [str(t) for t in arr]
+            texts = [str(t) for t in (arr[:, 0] if arr.ndim == 2 and arr.shape[1] == 1 else arr)]
         model = self._ensure_model()
         vecs = model.encode(texts, batch_size=self.batch_size, convert_to_numpy=True, normalize_embeddings=self.normalize)
-        return vecs  # (n_samples, dim)
+        return vecs
 
 # ==================== PREPROCESSOR & SCORING ====================
 preprocess = ColumnTransformer(
@@ -176,14 +173,7 @@ def summarize(cvres):
         'f1_mean':        np.mean(cvres['test_f1']),        'f1_std':        np.std(cvres['test_f1']),
     }
 
-def print_block(title, s):
-    print(title)
-    print(f"Accuracy:  {s['acc_mean']:.4f} ± {s['acc_std']:.4f}")
-    print(f"Precision: {s['precision_mean']:.4f} ± {s['precision_std']:.4f}")
-    print(f"Recall:    {s['recall_mean']:.4f} ± {s['recall_std']:.4f}")
-    print(f"F1:        {s['f1_mean']:.4f} ± {s['f1_std']:.4f}\n")
-
-# ==================== XGBOOST: BASELINE ====================
+# ==================== XGBOOST: BASELINE (CV on 80%) ====================
 xgb_base_est = xgb.XGBClassifier(
     n_estimators=800, learning_rate=0.1, max_depth=6,
     subsample=0.9, colsample_bytree=0.9,
@@ -193,10 +183,10 @@ xgb_base_est = xgb.XGBClassifier(
 )
 pipe_base = Pipeline(steps=[('pre', preprocess), ('clf', xgb_base_est)])
 
-base_cv = cross_validate(pipe_base, X_df, y, cv=cv5, scoring=scoring, n_jobs=-1, verbose=0)
+base_cv = cross_validate(pipe_base, X_train_df, y_train, cv=cv5, scoring=scoring, n_jobs=-1, verbose=0)
 base_stats = summarize(base_cv)
 
-# ==================== XGBOOST: TUNING ====================
+# ==================== XGBOOST: TUNING (CV on 80%) ====================
 pipe_tune = Pipeline(steps=[('pre', preprocess),
                             ('clf', xgb.XGBClassifier(
                                 objective='multi:softprob', tree_method='hist',
@@ -215,7 +205,7 @@ param_dist = {
 search = RandomizedSearchCV(
     estimator=pipe_tune,
     param_distributions=param_dist,
-    n_iter=20,                # keep moderate due to SBERT cost
+    n_iter=20,
     cv=cv5,
     scoring='f1_weighted',
     refit=True,
@@ -223,21 +213,33 @@ search = RandomizedSearchCV(
     n_jobs=-1,
     verbose=0
 )
-search.fit(X_df, y)
+search.fit(X_train_df, y_train)
 best_pipe = search.best_estimator_
 
-best_cv = cross_validate(best_pipe, X_df, y, cv=cv5, scoring=scoring, n_jobs=-1, verbose=0)
+best_cv = cross_validate(best_pipe, X_train_df, y_train, cv=cv5, scoring=scoring, n_jobs=-1, verbose=0)
 best_stats = summarize(best_cv)
 
-# ==================== PRINT (two blocks, aligned with Traditional_ML.py) ====================
-print("SBERT + XGBOOST — 5-fold (baseline)")
+# ==================== PRINT: CV blocks (like Traditional_ML.py) ====================
+print("SBERT + XGBOOST — 5-fold on 80% train (baseline)")
 print(f"Accuracy:  {base_stats['acc_mean']:.4f} ± {base_stats['acc_std']:.4f}")
 print(f"Precision: {base_stats['precision_mean']:.4f} ± {base_stats['precision_std']:.4f}")
 print(f"Recall:    {base_stats['recall_mean']:.4f} ± {base_stats['recall_std']:.4f}")
 print(f"F1:        {base_stats['f1_mean']:.4f} ± {base_stats['f1_std']:.4f}\n")
 
-print("SBERT + XGBOOST — 5-fold (tuned)")
+print("SBERT + XGBOOST — 5-fold on 80% train (tuned)")
 print(f"Accuracy:  {best_stats['acc_mean']:.4f} ± {best_stats['acc_std']:.4f}")
 print(f"Precision: {best_stats['precision_mean']:.4f} ± {best_stats['precision_std']:.4f}")
 print(f"Recall:    {best_stats['recall_mean']:.4f} ± {best_stats['recall_std']:.4f}")
 print(f"F1:        {best_stats['f1_mean']:.4f} ± {best_stats['f1_std']:.4f}\n")
+
+# ==================== FINAL TEST-SET EVALUATION (on fixed 20%) ====================
+# Refit tuned pipeline on all 80% training data, then test
+best_pipe.fit(X_train_df, y_train)
+y_pred_test = best_pipe.predict(X_test_df)
+
+print("SBERT + XGBOOST — FINAL TEST (fixed 20%)")
+print(f"Accuracy:  {accuracy_score(y_test, y_pred_test):.4f}")
+print(f"Precision: {precision_score(y_test, y_pred_test, average='weighted', zero_division=0):.4f}")
+print(f"Recall:    {recall_score(y_test, y_pred_test, average='weighted', zero_division=0):.4f}")
+print(f"F1:        {f1_score(y_test, y_pred_test, average='weighted', zero_division=0):.4f}")
+print("\nClassification Report:\n", classification_report(y_test, y_pred_test, zero_division=0))
