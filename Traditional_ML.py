@@ -325,23 +325,38 @@ print("Tuned XGBoost (CV) Recall:    {:.4f} ± {:.4f}".format(xgb_tuned_rec_scor
 print("Tuned XGBoost (CV) F1-score:  {:.4f} ± {:.4f}".format(xgb_tuned_f1_scores.mean(), xgb_tuned_f1_scores.std()))
 
 
-# ========== FINAL TEST-SET EVALUATION ==========
 print("\n===== TEST-SET EVALUATION =====")
+
 # Logistic Regression
 X_test_scaled = scaler.transform(X_test)
 tuned_logreg.fit(X_train_scaled, y_train)
 y_pred_logreg = tuned_logreg.predict(X_test_scaled)
-print("Logistic Regression Test Accuracy: {:.4f}".format(accuracy_score(y_test, y_pred_logreg)))
-print("Logistic Regression Test Classification Report:\n", classification_report(y_test, y_pred_logreg))
+
+print("\n--- Logistic Regression ---")
+print("Accuracy:  {:.4f}".format(accuracy_score(y_test, y_pred_logreg)))
+print("Precision: {:.4f}".format(precision_score(y_test, y_pred_logreg, average='weighted')))
+print("Recall:    {:.4f}".format(recall_score(y_test, y_pred_logreg, average='weighted')))
+print("F1-score:  {:.4f}".format(f1_score(y_test, y_pred_logreg, average='weighted')))
+print("\nClassification Report:\n", classification_report(y_test, y_pred_logreg))
 
 # Random Forest
 best_rf.fit(X_train, y_train)
 y_pred_rf = best_rf.predict(X_test)
-print("Random Forest Test Accuracy: {:.4f}".format(accuracy_score(y_test, y_pred_rf)))
-print("Random Forest Test Classification Report:\n", classification_report(y_test, y_pred_rf))
+
+print("\n--- Random Forest ---")
+print("Accuracy:  {:.4f}".format(accuracy_score(y_test, y_pred_rf)))
+print("Precision: {:.4f}".format(precision_score(y_test, y_pred_rf, average='weighted')))
+print("Recall:    {:.4f}".format(recall_score(y_test, y_pred_rf, average='weighted')))
+print("F1-score:  {:.4f}".format(f1_score(y_test, y_pred_rf, average='weighted')))
+print("\nClassification Report:\n", classification_report(y_test, y_pred_rf))
 
 # XGBoost
 best_xgb.fit(X_train, y_train)
 y_pred_xgb = best_xgb.predict(X_test)
-print("XGBoost Test Accuracy: {:.4f}".format(accuracy_score(y_test, y_pred_xgb)))
-print("XGBoost Test Classification Report:\n", classification_report(y_test, y_pred_xgb))
+
+print("\n--- XGBoost ---")
+print("Accuracy:  {:.4f}".format(accuracy_score(y_test, y_pred_xgb)))
+print("Precision: {:.4f}".format(precision_score(y_test, y_pred_xgb, average='weighted')))
+print("Recall:    {:.4f}".format(recall_score(y_test, y_pred_xgb, average='weighted')))
+print("F1-score:  {:.4f}".format(f1_score(y_test, y_pred_xgb, average='weighted')))
+print("\nClassification Report:\n", classification_report(y_test, y_pred_xgb))
