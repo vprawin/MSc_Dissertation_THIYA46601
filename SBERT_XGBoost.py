@@ -4,7 +4,8 @@ MSc Dissertation — SBERT_XGBoost.py
 SBERT embeddings + XGBoost with 80/20 fixed test-set evaluation, mirroring Traditional_ML.py:
 1) Stratified 80/20 split (20% = final test)
 2) 5-fold CV on the 80% train only (baseline + tuned) → print mean ± std (Acc/Prec/Rec/F1 weighted)
-3) Refit tuned pipeline on 80% train and evaluate on 20% test → print single metrics + classification report
+3) Refit baseline pipeline on 80% train and evaluate on 20% test (single metrics + classification report)
+4) Refit tuned pipeline on 80% train and evaluate on 20% test (single metrics + classification report)
 
 Author: Prawin Thiyagrajan Veeramani
 Prepared on: 2025-08-26
@@ -233,13 +234,22 @@ print(f"Recall:    {best_stats['recall_mean']:.4f} ± {best_stats['recall_std']:
 print(f"F1:        {best_stats['f1_mean']:.4f} ± {best_stats['f1_std']:.4f}\n")
 
 # ==================== FINAL TEST-SET EVALUATION (on fixed 20%) ====================
-# Refit tuned pipeline on all 80% training data, then test
-best_pipe.fit(X_train_df, y_train)
-y_pred_test = best_pipe.predict(X_test_df)
+# --- Baseline pipeline on test ---
+pipe_base.fit(X_train_df, y_train)
+y_pred_test_base = pipe_base.predict(X_test_df)
+print("SBERT + XGBOOST — FINAL TEST (fixed 20%) — BASELINE")
+print(f"Accuracy:  {accuracy_score(y_test, y_pred_test_base):.4f}")
+print(f"Precision: {precision_score(y_test, y_pred_test_base, average='weighted', zero_division=0):.4f}")
+print(f"Recall:    {recall_score(y_test, y_pred_test_base, average='weighted', zero_division=0):.4f}")
+print(f"F1:        {f1_score(y_test, y_pred_test_base, average='weighted', zero_division=0):.4f}")
+print("\nClassification Report:\n", classification_report(y_test, y_pred_test_base, zero_division=0))
 
-print("SBERT + XGBOOST — FINAL TEST (fixed 20%)")
-print(f"Accuracy:  {accuracy_score(y_test, y_pred_test):.4f}")
-print(f"Precision: {precision_score(y_test, y_pred_test, average='weighted', zero_division=0):.4f}")
-print(f"Recall:    {recall_score(y_test, y_pred_test, average='weighted', zero_division=0):.4f}")
-print(f"F1:        {f1_score(y_test, y_pred_test, average='weighted', zero_division=0):.4f}")
-print("\nClassification Report:\n", classification_report(y_test, y_pred_test, zero_division=0))
+# --- Tuned pipeline on test ---
+best_pipe.fit(X_train_df, y_train)
+y_pred_test_tuned = best_pipe.predict(X_test_df)
+print("\nSBERT + XGBOOST — FINAL TEST (fixed 20%) — TUNED")
+print(f"Accuracy:  {accuracy_score(y_test, y_pred_test_tuned):.4f}")
+print(f"Precision: {precision_score(y_test, y_pred_test_tuned, average='weighted', zero_division=0):.4f}")
+print(f"Recall:    {recall_score(y_test, y_pred_test_tuned, average='weighted', zero_division=0):.4f}")
+print(f"F1:        {f1_score(y_test, y_pred_test_tuned, average='weighted', zero_division=0):.4f}")
+print("\nClassification Report:\n", classification_report(y_test, y_pred_test_tuned, zero_division=0))
