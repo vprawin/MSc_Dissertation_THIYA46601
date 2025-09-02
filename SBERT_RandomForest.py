@@ -1,11 +1,7 @@
 """
 MSc Dissertation — SBERT_RandomForest.py
 
-SBERT embeddings + Random Forest with 80/20 fixed test-set evaluation, mirroring Traditional_ML.py:
-1) Stratified 80/20 split (20% = final test)
-2) 5-fold CV on the 80% train only (baseline + tuned) → print mean ± std (Acc/Prec/Rec/F1 weighted)
-3) Refit baseline pipeline on 80% train and evaluate on 20% test (single metrics + classification report)
-4) Refit tuned pipeline on 80% train and evaluate on 20% test (single metrics + classification report)
+SBERT embeddings + Random Forest with 80/20 fixed test-set evaluation, mirroring Traditional_ML.py
 
 Author: Prawin Thiyagrajan Veeramani
 Prepared on: 2025-08-26
@@ -170,7 +166,7 @@ def summarize(cvres):
         'f1_mean':        np.mean(cvres['test_f1']),        'f1_std':        np.std(cvres['test_f1']),
     }
 
-# ==================== RF: BASELINE (CV on 80%) ====================
+# ==================== RF: BASELINE CV ====================
 rf_base_est = RandomForestClassifier(
     n_estimators=400, max_depth=None, min_samples_split=2, min_samples_leaf=1,
     bootstrap=True, class_weight='balanced_subsample', random_state=42, n_jobs=-1
@@ -179,7 +175,7 @@ pipe_base = Pipeline(steps=[('pre', preprocess), ('clf', rf_base_est)])
 base_cv = cross_validate(pipe_base, X_train_df, y_train, cv=cv5, scoring=scoring, n_jobs=-1, verbose=0)
 base_stats = summarize(base_cv)
 
-# ==================== RF: TUNING (CV on 80%) ====================
+# ==================== RF: TUNING CV ====================
 pipe_tune = Pipeline(steps=[('pre', preprocess), ('clf', RandomForestClassifier(random_state=42, n_jobs=-1))])
 param_dist = {
     'clf__n_estimators':      np.arange(200, 1001, 100),
@@ -219,7 +215,7 @@ print(f"Precision: {best_stats['precision_mean']:.4f} ± {best_stats['precision_
 print(f"Recall:    {best_stats['recall_mean']:.4f} ± {best_stats['recall_std']:.4f}")
 print(f"F1:        {best_stats['f1_mean']:.4f} ± {best_stats['f1_std']:.4f}\n")
 
-# ==================== FINAL TEST-SET EVALUATION (on fixed 20%) ====================
+# ==================== FINAL TEST-SET EVALUATION ====================
 # --- Baseline pipeline on test ---
 pipe_base.fit(X_train_df, y_train)
 y_pred_test_base = pipe_base.predict(X_test_df)
