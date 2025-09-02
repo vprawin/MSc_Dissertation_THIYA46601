@@ -2,10 +2,6 @@
 MSc Dissertation — SBERT_XGBoost.py
 
 SBERT embeddings + XGBoost with 80/20 fixed test-set evaluation, mirroring Traditional_ML.py:
-1) Stratified 80/20 split (20% = final test)
-2) 5-fold CV on the 80% train only (baseline + tuned) → print mean ± std (Acc/Prec/Rec/F1 weighted)
-3) Refit baseline pipeline on 80% train and evaluate on 20% test (single metrics + classification report)
-4) Refit tuned pipeline on 80% train and evaluate on 20% test (single metrics + classification report)
 
 Author: Prawin Thiyagrajan Veeramani
 Prepared on: 2025-08-26
@@ -42,7 +38,7 @@ set_seed(42)
 df = pd.read_excel(r'/Users/prawin/Desktop/MSc Data Science/Dissertation/Dataset_Sampled.xlsx')
 df.columns = ['Defect Place', 'Defect Type', 'Capture Remark', 'Precise Defect Description']
 
-# ==================== TEXT PROCESSING (kept aligned with your code) ====================
+# ==================== TEXT PROCESSING ====================
 stemmer = PorterStemmer()
 lemmatizer = WordNetLemmatizer()
 
@@ -174,7 +170,7 @@ def summarize(cvres):
         'f1_mean':        np.mean(cvres['test_f1']),        'f1_std':        np.std(cvres['test_f1']),
     }
 
-# ==================== XGBOOST: BASELINE (CV on 80%) ====================
+# ==================== XGBOOST: BASELINE ====================
 xgb_base_est = xgb.XGBClassifier(
     n_estimators=800, learning_rate=0.1, max_depth=6,
     subsample=0.9, colsample_bytree=0.9,
@@ -187,7 +183,7 @@ pipe_base = Pipeline(steps=[('pre', preprocess), ('clf', xgb_base_est)])
 base_cv = cross_validate(pipe_base, X_train_df, y_train, cv=cv5, scoring=scoring, n_jobs=-1, verbose=0)
 base_stats = summarize(base_cv)
 
-# ==================== XGBOOST: TUNING (CV on 80%) ====================
+# ==================== XGBOOST: TUNING ====================
 pipe_tune = Pipeline(steps=[('pre', preprocess),
                             ('clf', xgb.XGBClassifier(
                                 objective='multi:softprob', tree_method='hist',
@@ -220,7 +216,7 @@ best_pipe = search.best_estimator_
 best_cv = cross_validate(best_pipe, X_train_df, y_train, cv=cv5, scoring=scoring, n_jobs=-1, verbose=0)
 best_stats = summarize(best_cv)
 
-# ==================== PRINT: CV blocks (like Traditional_ML.py) ====================
+# ==================== PRINT: CV blocks ====================
 print("SBERT + XGBOOST — 5-fold on 80% train (baseline)")
 print(f"Accuracy:  {base_stats['acc_mean']:.4f} ± {base_stats['acc_std']:.4f}")
 print(f"Precision: {base_stats['precision_mean']:.4f} ± {base_stats['precision_std']:.4f}")
@@ -233,7 +229,7 @@ print(f"Precision: {best_stats['precision_mean']:.4f} ± {best_stats['precision_
 print(f"Recall:    {best_stats['recall_mean']:.4f} ± {best_stats['recall_std']:.4f}")
 print(f"F1:        {best_stats['f1_mean']:.4f} ± {best_stats['f1_std']:.4f}\n")
 
-# ==================== FINAL TEST-SET EVALUATION (on fixed 20%) ====================
+# ==================== FINAL TEST-SET EVALUATION ====================
 # --- Baseline pipeline on test ---
 pipe_base.fit(X_train_df, y_train)
 y_pred_test_base = pipe_base.predict(X_test_df)
