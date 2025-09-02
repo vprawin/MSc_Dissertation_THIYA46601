@@ -2,17 +2,7 @@
 MSc Dissertation — Text_Augmentation_BERT.py
 
 Text augmentation pipeline for BERT classifier with standardized
-training/evaluation protocol:
-- 80/20 stratified split: 20% = final test (never used in CV/tuning)
-- 4-fold CV on the 80% dev set: each fold yields 60% train / 20% val (of whole)
-- Train-only augmentation (inside each fold)
-- Early stopping on validation F1 (weighted)
-- Hyperparameter tuning (grid search on dev CV)
-- Print results ONLY 4 times:
-    1) Baseline CV (mean ± std) for Acc/Prec/Rec/F1 (weighted)
-    2) Baseline Test (single values)
-    3) Tuned CV (mean ± std)
-    4) Tuned Test (single values)
+training/evaluation protocol
 
 Author: Prawin Thiyagrajan Veeramani
 Prepared on: 2025-08-26
@@ -286,7 +276,7 @@ y_test      = take(labels_all, test_idx)
 dev_texts  = take(texts_all,  dev_idx)
 dev_labels = take(labels_all, dev_idx)
 
-# ==================== CV RUN (silent) ====================
+# ==================== CV RUN ====================
 def run_cv_once(cfg):
     """
     4-fold CV on dev set (80%): each fold => 60/20 of WHOLE for train/val.
@@ -365,7 +355,7 @@ if baseline_best_state is not None:
 te_preds_base, te_true = eval_epoch(baseline_model, test_loader)
 baseline_test = metrics_four(te_true, te_preds_base)
 
-# ==================== TUNING: CV over PARAM_GRID (best by mean F1) ====================
+# ==================== TUNING: CV over PARAM_GRID ====================
 best_cfg = None
 best_cfg_stats = None
 best_cfg_state = None
@@ -388,7 +378,7 @@ if best_cfg_state is not None:
 te_preds_tuned, te_true2 = eval_epoch(tuned_model, test_loader)
 tuned_test = metrics_four(te_true2, te_preds_tuned)
 
-# ==================== PRINT EXACTLY FOUR TIMES ====================
+# ==================== PRINT ====================
 print("BASELINE — CV (dev 80%)")
 print(f"Accuracy: {baseline_cv['acc_mean']:.4f} ± {baseline_cv['acc_std']:.4f}")
 print(f"Precision: {baseline_cv['p_mean']:.4f} ± {baseline_cv['p_std']:.4f}")
