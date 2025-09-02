@@ -1,19 +1,6 @@
 """
 MSc Dissertation — DCN_BERT.py
 
-Split policy:
-- Single stratified 80/20 split of the WHOLE dataset.
-  * 20% = final test (never touched for CV/tuning)
-  * 80% = development set
-- On the 80% dev set: 4-fold CV so each fold yields:
-  * Train = 60% of WHOLE (3/4 of dev)
-  * Val   = 20% of WHOLE (1/4 of dev)
-- Baseline model and Hyperparameter-Tuned model:
-  * Report only four times:
-    1. Baseline CV (dev 80%) — mean ± std of Acc/Prec/Rec/F1 (weighted)
-    2. Baseline Final Test (20%) — Acc/Prec/Rec/F1 (weighted)
-    3. Tuned CV (dev 80%) — mean ± std of Acc/Prec/Rec/F1 (weighted)
-    4. Tuned Final Test (20%) — Acc/Prec/Rec/F1 (weighted)
 """
 
 # ===================== Imports =====================
@@ -337,7 +324,7 @@ dev_places = take(places, dev_idx)
 dev_types  = take(types_, dev_idx)
 dev_labels = take(labels, dev_idx)
 
-# ===================== Helpers for one CV run (silent) =====================
+# ===================== CV  =====================
 def run_cv_once(config, dev_texts, dev_places, dev_types, dev_labels):
     """
     Returns:
@@ -427,11 +414,11 @@ def summarize_metrics(metrics_list):
         "f1_mean":  arr_f1.mean(),  "f1_std":  arr_f1.std(),
     }
 
-# ===================== BASELINE CV (silent) =====================
+# ===================== BASELINE CV =====================
 baseline_metrics_list, baseline_best_state = run_cv_once(BASE_CFG, dev_texts, dev_places, dev_types, dev_labels)
 baseline_cv = summarize_metrics(baseline_metrics_list)
 
-# ===================== BASELINE Final Test (silent) =====================
+# ===================== Final Test =====================
 # Load best baseline fold model to test
 baseline_model = DCN_BERT(
     num_labels=len(le_label.classes_),
@@ -450,7 +437,7 @@ test_dl = DataLoader(CustomDataset(ds_te), batch_size=BATCH_EVAL, shuffle=False,
 _, te_preds_base, te_true = eval_epoch(baseline_model, test_dl)
 baseline_test = metrics_four(te_true, te_preds_base)
 
-# ===================== HYPERPARAMETER TUNING CV (silent) =====================
+# ===================== HYPERPARAMETER TUNING CV =====================
 best_cfg = None
 best_cfg_stats = None
 best_cfg_f1_mean = -np.inf
@@ -465,7 +452,7 @@ for cfg in grid_dicts(PARAM_GRID):
         best_cfg_stats = stats
         best_cfg_state = cfg_state
 
-# ===================== Tuned Final Test (silent) =====================
+# ===================== Tuned Final Test =====================
 tuned_model = DCN_BERT(
     num_labels=len(le_label.classes_),
     num_place=len(le_place.classes_),
@@ -481,7 +468,7 @@ if best_cfg_state is not None:
 _, te_preds_tuned, te_true = eval_epoch(tuned_model, test_dl)
 tuned_test = metrics_four(te_true, te_preds_tuned)
 
-# ===================== PRINT EXACTLY FOUR TIMES =====================
+# ===================== PRINT =====================
 # 1) Baseline CV: mean ± std
 print("BASELINE — CV (on dev 80%)")
 print(f"Accuracy: {baseline_cv['acc_mean']:.4f} ± {baseline_cv['acc_std']:.4f}")
