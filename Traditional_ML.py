@@ -35,7 +35,7 @@ import numpy as np
 df = pd.read_excel(r'/Users/prawin/Desktop/MSc Data Science/Dissertation/Dataset_Sampled.xlsx')
 df.columns = ['Defect Place', 'Defect Type', 'Capture Remark', 'Precise Defect Description']
 
-# ========== TEXT PROCESSING FUNCTIONS (do not modify) ==========
+# ========== TEXT PROCESSING FUNCTIONS ==========
 stemmer = PorterStemmer()
 lemmatizer = WordNetLemmatizer()
 
