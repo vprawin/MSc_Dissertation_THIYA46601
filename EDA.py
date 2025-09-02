@@ -1,10 +1,7 @@
 """MSc Dissertation — EDA.py
 
     Exploratory Data Analysis utilities and plots for the dissertation dataset.
-
-    This file is prepared for publication on GitHub (appendix reference). It adds clear, standardized
-    docstrings while preserving original behavior.
-
+    
     Author: Prawin Thiyagrajan Veeramani
     Prepared on: 2025-08-26
     """
@@ -219,44 +216,41 @@ plt.show()
 
 filtered_df = df['Capture Remark'].dropna()
 
-# Step 2: Ensure all values are strings
+# Step 10: Ensure all values are strings
 filtered_df = filtered_df.astype(str)
 
-# Step 3: Combine all remarks into a single string
+# Step 11: Combine all remarks into a single string
 text = " ".join(filtered_df.tolist())
 
-# Step 4: Generate Word Cloud
+# Step 12: Generate Word Cloud
 wordcloud = WordCloud(stopwords=STOPWORDS, width=800, height=400, background_color='white').generate(text)
 
-# Step 5: Plot the Word Cloud
+# Step 13: Plot the Word Cloud
 plt.figure(figsize=(10, 5))
 plt.imshow(wordcloud, interpolation='bilinear')
 plt.axis('off')
 plt.show()
 
-from collections import Counter
-import re
-from wordcloud import WordCloud, STOPWORDS
-import matplotlib.pyplot as plt
 
-# Step 1: Prepare text
+
+# Step 14: Prepare text
 filtered = df['Capture Remark'].dropna().astype(str)
 text = " ".join(filtered.tolist()).lower()
 
-# Step 2: Tokenize & clean
+# Step 15: Tokenize & clean
 words = re.findall(r'\b[a-zA-Z]{2,}\b', text)  # keep only alphabetic words with length >= 2
 
-# Step 3: Remove stopwords and irrelevant terms
+# Step 16: Remove stopwords and irrelevant terms
 custom_stopwords = set(STOPWORDS)
 # You can extend with domain-specific stopwords:
 custom_stopwords.update(["mm", "na", "nan"])
 
 words = [w for w in words if w not in custom_stopwords]
 
-# Step 4: Frequency count
+# Step 17: Frequency count
 freq = Counter(words)
 
-# Step 5: Get most frequent, median, and seldom terms
+# Step 18: Get most frequent, median, and seldom terms
 if not freq:
     print("No valid words to analyze.")
 else:
