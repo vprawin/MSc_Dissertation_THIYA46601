@@ -2,16 +2,7 @@
 MSc Dissertation — RoBERTa_Model.py
 
 RoBERTa-based model with categorical embeddings (place/type) and standardized
-training/evaluation pipeline for the dissertation:
-- 80/20 stratified split: 20% = final test (never used in CV/tuning)
-- 4-fold CV on the 80% dev set: each fold yields 60% train / 20% val (of whole)
-- Early stopping on validation F1 (weighted)
-- Hyperparameter tuning (grid search on dev CV)
-- Print results ONLY 4 times:
-    1) Baseline CV (mean ± std) for Acc/Prec/Rec/F1 (weighted)
-    2) Baseline Test (single values)
-    3) Tuned CV (mean ± std)
-    4) Tuned Test (single values)
+training/evaluation pipeline for the dissertation
 
 Author: Prawin Thiyagrajan Veeramani
 Prepared on: 2025-08-26
@@ -117,7 +108,7 @@ def first_preprocessing(data: pd.DataFrame) -> pd.DataFrame:
 
 data_all = first_preprocessing(df).astype(str)
 
-# ==================== RARE CLASS UPSAMPLING (global, folds will upsample train again) ====================
+# ==================== RARE CLASS UPSAMPLING ====================
 min_samples = 6
 label_counts = data_all['Precise Defect Description'].value_counts()
 rare_classes = label_counts[label_counts < min_samples].index
@@ -313,7 +304,7 @@ dev_places = take(places, dev_idx)
 dev_types  = take(types_, dev_idx)
 dev_labels = take(labels, dev_idx)
 
-# ==================== CV RUN (silent) ====================
+# ==================== CV RUN ====================
 def run_cv_once(cfg):
     """
     4-fold CV on the dev set (80%): each fold corresponds to 60/20 of WHOLE for train/val.
@@ -400,7 +391,7 @@ def summarize_metrics(metrics_list):
 baseline_metrics_list, baseline_best_state = run_cv_once(BASE_CFG)
 baseline_cv = summarize_metrics(baseline_metrics_list)
 
-# ==================== BASELINE TEST (use best fold snapshot) ====================
+# ==================== BASELINE TEST ====================
 ds_te = make_hf_dataset(X_test_text, X_test_pl, X_test_ty, y_test)
 test_dl = DataLoader(CustomDataset(ds_te), batch_size=BATCH_EVAL, shuffle=False, collate_fn=collate_fn)
 
@@ -412,7 +403,7 @@ if baseline_best_state is not None:
 _, te_preds_base, te_true = eval_epoch(baseline_model, test_dl)
 baseline_test = metrics_four(te_true, te_preds_base)
 
-# ==================== TUNING: CV over PARAM_GRID (pick best by mean F1) ====================
+# ==================== TUNING: CV over PARAM_GRID ====================
 best_cfg = None
 best_cfg_stats = None
 best_cfg_state = None
